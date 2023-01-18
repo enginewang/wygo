@@ -18,7 +18,7 @@ ___ | /| / / __  / / /_  / __  _  __ \
 ___ |/ |/ /  _  /_/ / / /_/ /  / /_/ /
 _____/|__/   _\__, /  \____/   \____/ 
             /____/
-Wygo: A Simple and Powerful Go Web Framework`
+`
 )
 
 type HandlerFunc func(*Context) error
