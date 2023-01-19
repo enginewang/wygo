@@ -2,7 +2,6 @@ package wygo
 
 import (
 	"fmt"
-	"github.com/enginewang/wygo/middleware"
 	"html/template"
 	"log"
 	"net/http"
@@ -12,16 +11,15 @@ import (
 
 const (
 	LOGO = `
-____       __         _________       
-___ |     / /_____  ____  ____/______ 
-___ | /| / / __  / / /_  / __  _  __ \
-___ |/ |/ /  _  /_/ / / /_/ /  / /_/ /
-_____/|__/   _\__, /  \____/   \____/ 
-            /____/
+ _      ____  ______ _____ 
+| | /| / / / / / __ |/ __ \
+| |/ |/ / /_/ / /_/ / /_/ /
+|__/|__/\__  /\__  /\____/
+       /____//____/        
 `
 )
 
-type HandlerFunc func(*Context) error
+type HandlerFunc func(*Context)
 
 type RouterGroup struct {
 	prefix      string
@@ -46,14 +44,14 @@ func New() *Engine {
 	engine.RouterGroup = &RouterGroup{engine: engine}
 	engine.groups = []*RouterGroup{engine.RouterGroup}
 	fmt.Println(LOGO)
-	engine.DefaultMiddleware(
-		middleware.Logger(),
-		middleware.Recovery(),
-	)
+	//engine.DefaultMiddleware(
+	//	middleware.Logger(),
+	//	middleware.Recovery(),
+	//)
 	return engine
 }
 
-func (group *RouterGroup) DefaultMiddleware(middlewares ...HandlerFunc) {
+func (group *RouterGroup) UserMiddlewares(middlewares ...HandlerFunc) {
 	for _, m := range middlewares {
 		group.Use(m)
 	}
@@ -86,9 +84,25 @@ func (group *RouterGroup) POST(pattern string, handler HandlerFunc) {
 	group.addRoute("POST", pattern, handler)
 }
 
+func (group *RouterGroup) PUT(pattern string, handler HandlerFunc) {
+	group.addRoute("PUT", pattern, handler)
+}
+
+func (group *RouterGroup) UPDATE(pattern string, handler HandlerFunc) {
+	group.addRoute("UPDATE", pattern, handler)
+}
+
+func (group *RouterGroup) DELETE(pattern string, handler HandlerFunc) {
+	group.addRoute("DELETE", pattern, handler)
+}
+
+func (group *RouterGroup) PATCH(pattern string, handler HandlerFunc) {
+	group.addRoute("PATCH", pattern, handler)
+}
+
 // Run defines the method to start a http server
 func (engine *Engine) Run(addr string) (err error) {
-	fmt.Printf("Serve on %v\n", addr)
+	fmt.Printf("Wygo Serve on %v\n", addr)
 	return http.ListenAndServe(addr, engine)
 }
 
@@ -99,15 +113,13 @@ func (group *RouterGroup) Use(middlewares ...HandlerFunc) {
 func (group *RouterGroup) createStaticHandler(relativePath string, fs http.FileSystem) HandlerFunc {
 	absolutePath := path.Join(group.prefix, relativePath)
 	fileServer := http.StripPrefix(absolutePath, http.FileServer(fs))
-	return func(c *Context) error {
+	return func(c *Context) {
 		file := c.Param("filepath")
 		// Check if file exists and/or if we have permission to access it
 		if _, err := fs.Open(file); err != nil {
 			c.SetStatusCode(http.StatusNotFound)
-			return err
 		}
 		fileServer.ServeHTTP(c.Writer, c.Req)
-		return nil
 	}
 }
 
@@ -115,7 +127,6 @@ func (group *RouterGroup) createStaticHandler(relativePath string, fs http.FileS
 func (group *RouterGroup) Static(relativePath string, root string) {
 	handler := group.createStaticHandler(relativePath, http.Dir(root))
 	urlPattern := path.Join(relativePath, "/*filepath")
-	// Register GET handlers
 	group.GET(urlPattern, handler)
 }
 

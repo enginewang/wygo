@@ -192,6 +192,30 @@ func (c *Context) QueryArray(key string, defaultValue []string) []string {
 	return defaultValue
 }
 
+func (c *Context) PostFormInt(key string, defaultValue int) int {
+	valInt, err := strconv.Atoi(c.Req.FormValue(key))
+	if err != nil {
+		return defaultValue
+	}
+	return valInt
+}
+
+func (c *Context) PostFormFloat64(key string, defaultValue float64) float64 {
+	val, err := strconv.ParseFloat(c.Req.FormValue(key), 64)
+	if err != nil {
+		return defaultValue
+	}
+	return val
+}
+
+func (c *Context) PostFormFloat32(key string, defaultValue float64) float64 {
+	val, err := strconv.ParseFloat(c.Req.FormValue(key), 32)
+	if err != nil {
+		return defaultValue
+	}
+	return val
+}
+
 func (c *Context) SetStatusCode(statusCode int) {
 	c.StatusCode = statusCode
 	c.Writer.WriteHeader(statusCode)
@@ -221,35 +245,31 @@ func (c *Context) Bytes(statusCode int, b []byte) error {
 	return nil
 }
 
-func (c *Context) String(statusCode int, format string, values ...interface{}) error {
+func (c *Context) String(statusCode int, format string, values ...interface{}) {
 	c.SetHeader("Content-Type", "text/plain")
 	c.SetStatusCode(statusCode)
 	_, err := c.Writer.Write([]byte(fmt.Sprintf(format, values...)))
 	if err != nil {
-		return err
+		c.SetStatusCode(http.StatusInternalServerError)
 	}
-	return nil
 }
 
-func (c *Context) JSON(statusCode int, obj interface{}) error {
+func (c *Context) JSON(statusCode int, obj interface{}) {
 	c.SetHeader("Content-Type", "application/json")
 	c.SetStatusCode(statusCode)
 	encoder := json.NewEncoder(c.Writer)
 	if err := encoder.Encode(obj); err != nil {
 		c.SetStatusCode(http.StatusInternalServerError)
-		return err
 	}
-	return nil
 }
 
-func (c *Context) HTML(statusCode int, html string) error {
+func (c *Context) HTML(statusCode int, html string) {
 	c.SetHeader("Content-Type", "text/html")
 	c.SetStatusCode(statusCode)
 	_, err := c.Writer.Write([]byte(html))
 	if err != nil {
-		return err
+		c.SetStatusCode(http.StatusInternalServerError)
 	}
-	return nil
 }
 
 func (c *Context) HTMLTemplate(statusCode int, name string, data interface{}) {

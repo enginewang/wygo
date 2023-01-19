@@ -2,11 +2,11 @@ package middleware
 
 import (
 	"fmt"
-	"github.com/enginewang/wygo"
 	"log"
 	"net/http"
 	"runtime"
 	"strings"
+	"wygo"
 )
 
 // 打印堆栈信息
@@ -25,7 +25,7 @@ func trace(message string) string {
 }
 
 func Recovery() wygo.HandlerFunc {
-	return func(c *wygo.Context) error {
+	return func(c *wygo.Context) {
 		defer func() {
 			if err := recover(); err != nil {
 				message := fmt.Sprintf("%s", err)
@@ -34,6 +34,5 @@ func Recovery() wygo.HandlerFunc {
 			}
 		}()
 		c.Next()
-		return nil
 	}
 }
