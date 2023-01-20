@@ -1,11 +1,14 @@
 package wygo
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log"
+	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"sync"
 	"time"
@@ -61,18 +64,6 @@ func (c *Context) Next() {
 	}
 }
 
-//func (c *Context) Next() error {
-//	if c.handlerIndex < len(c.handlers) {
-//		if err := c.handlers[c.handlerIndex](c); err != nil {
-//			return err
-//		}
-//	}
-//	c.handlerIndex += 1
-//	return nil
-//}
-
-// 最基本的对各种属性的Get/Set
-
 func (c *Context) Mux() *sync.Mutex {
 	return c.mu
 }
@@ -114,38 +105,107 @@ func (c *Context) Value(key any) any {
 	return c.BaseContext().Value(key)
 }
 
-// 一些便捷方法的封装，包括Req和Resp
-func (c *Context) PostForm(key string) string {
-	return c.Req.FormValue(key)
+type IRequest interface {
+	// Query相关，也就是url &a=1这样的
+	Query(key string) interface{}
+	QueryInt(key string, defaultValue int) int
+	QueryInt64(key string, defaultValue int64) int64
+	QueryFloat64(key string, defaultValue float64) float64
+	QueryFloat32(key string, defaultValue float32) float32
+	//QueryBool(key string, defaultValue bool) (bool, bool)
+	QueryString(key string, defaultValue string) string
+	QueryStringSlice(key string, defaultValue []string) []string
+	// Param相关，也就是/:id这样的
+	Param(key string) interface{}
+	ParamInt(key string, defaultValue int) int
+	ParamInt64(key string, defaultValue int64) int64
+	ParamFloat64(key string, defaultValue float64) float64
+	ParamFloat32(key string, defaultValue float32) float32
+	//ParamBool(key string, defaultValue bool) (bool, bool)
+	ParamString(key string, defaultValue string) string
+	// Form表单数据的获取
+	PostForm(key string) string
+	PostFormInt(key string, defaultValue int) int
+	PostFormInt64(key string, defaultValue int64) int64
+	PostFormFloat64(key string, defaultValue float64) float64
+	PostFormFloat32(key string, defaultValue float32) float32
+	//PostFormBool(key string, defaultValue bool) (bool, bool)
+	//PostFormString(key string) string
+
+	// 将body文本解析到obj中
+	BindJson(obj interface{}) error
+
+	//PostFormStringSlice(key string, defaultValue []string) (string, bool)
+	//PostFormFile(key string) (*multipart.FileHeader, error)
+	//BindXML(obj interface{}) error
+
+	//Uri() string
+	//Method() string
+	//Host() string
+	//ClientIP() string
+
+	//Headers() map[string]string
+	//Header(key string) (string, bool)
+	//
+	//Cookies() map[string]string
+	//Cookie(key string) (string, bool)
 }
 
-func (c *Context) Query(key string) string {
-	return c.Req.URL.Query().Get(key)
+type IResponse interface {
+	// 返回的仍然是IResponse，允许方法链式调用，提高可读性
+	// 返回类型
+	JSON(obj interface{}) IResponse
+	HTML(html string) IResponse
+	HTMLTemplate(template string, data interface{}) IResponse
+	String(format string, values ...interface{}) IResponse
+	// 重定向
+	Redirect(path string) IResponse
+	SetHeader(key string, val string) IResponse
+	SetStatusCode(code int) IResponse
+	SetCookie(key string, val string, maxAge int, path, domain string, secure, httpOnly bool) IResponse
+	SetStatusOK() IResponse
+	SetStatusInternalServerError() IResponse
 }
 
 // 一些关于Request的封装
 // 这里调用net/url的Query()方法，对url的?后面的query进行解析
 // 比如 xxx:port/get?a=1&a=2&b=3会被解析为 {a:[1,2], b:[3]}
 // 对于a来说，最后出现的2是有效的，之前的会被替代
+func (c *Context) Query(key string) interface{} {
+	return c.Req.URL.Query().Get(key)
+}
 
 func (c *Context) QueryAll() map[string][]string {
 	if c.Req != nil {
-		return c.Req.URL.Query()
+		return map[string][]string(c.Req.URL.Query())
 	}
 	return map[string][]string{}
 }
 
-// 查询key对应的int值，如果没找到就用def(ault)代替
-
 func (c *Context) QueryInt(key string, defaultValue int) int {
 	params := c.QueryAll()
 	if vals, ok := params[key]; ok {
-		val := vals[len(vals)-1]
-		valInt, err := strconv.Atoi(val)
-		if err != nil {
-			return defaultValue
+		if len(vals) > 0 {
+			valInt, err := strconv.Atoi(vals[len(vals)-1])
+			if err != nil {
+				return defaultValue
+			}
+			return valInt
 		}
-		return valInt
+	}
+	return defaultValue
+}
+
+func (c *Context) QueryInt64(key string, defaultValue int64) int64 {
+	params := c.QueryAll()
+	if vals, ok := params[key]; ok {
+		if len(vals) > 0 {
+			valInt64, err := strconv.Atoi(vals[len(vals)-1])
+			if err != nil {
+				return defaultValue
+			}
+			return int64(valInt64)
+		}
 	}
 	return defaultValue
 }
@@ -153,25 +213,27 @@ func (c *Context) QueryInt(key string, defaultValue int) int {
 func (c *Context) QueryFloat64(key string, defaultValue float64) float64 {
 	params := c.QueryAll()
 	if vals, ok := params[key]; ok {
-		val := vals[len(vals)-1]
-		valInt, err := strconv.ParseFloat(val, 64)
-		if err != nil {
-			return defaultValue
+		if len(vals) > 0 {
+			valFloat64, err := strconv.ParseFloat(vals[len(vals)-1], 64)
+			if err != nil {
+				return defaultValue
+			}
+			return valFloat64
 		}
-		return valInt
 	}
 	return defaultValue
 }
 
-func (c *Context) QueryFloat32(key string, defaultValue float64) float64 {
+func (c *Context) QueryFloat32(key string, defaultValue float32) float32 {
 	params := c.QueryAll()
 	if vals, ok := params[key]; ok {
-		val := vals[len(vals)-1]
-		valInt, err := strconv.ParseFloat(val, 32)
-		if err != nil {
-			return defaultValue
+		if len(vals) > 0 {
+			valFloat32, err := strconv.ParseFloat(vals[len(vals)-1], 32)
+			if err != nil {
+				return defaultValue
+			}
+			return float32(valFloat32)
 		}
-		return valInt
 	}
 	return defaultValue
 }
@@ -179,12 +241,14 @@ func (c *Context) QueryFloat32(key string, defaultValue float64) float64 {
 func (c *Context) QueryString(key string, defaultValue string) string {
 	params := c.QueryAll()
 	if vals, ok := params[key]; ok {
-		return vals[len(vals)-1]
+		if len(vals) > 0 {
+			return vals[len(vals)-1]
+		}
 	}
 	return defaultValue
 }
 
-func (c *Context) QueryArray(key string, defaultValue []string) []string {
+func (c *Context) QueryStringSlice(key string, defaultValue []string) []string {
 	params := c.QueryAll()
 	if vals, ok := params[key]; ok {
 		return vals
@@ -192,90 +256,190 @@ func (c *Context) QueryArray(key string, defaultValue []string) []string {
 	return defaultValue
 }
 
+func (c *Context) Param(key string) interface{} {
+	value, _ := c.Params[key]
+	return value
+}
+
+func (c *Context) ParamInt(key string, defaultValue int) int {
+	if value, ok := c.Params[key]; ok {
+		valInt, err := strconv.Atoi(value)
+		if err != nil {
+			return defaultValue
+		}
+		return valInt
+	}
+	return defaultValue
+}
+
+func (c *Context) ParamInt64(key string, defaultValue int64) int64 {
+	if value, ok := c.Params[key]; ok {
+		valInt64, err := strconv.Atoi(value)
+		if err != nil {
+			return defaultValue
+		}
+		return int64(valInt64)
+	}
+	return defaultValue
+}
+
+func (c *Context) ParamFloat64(key string, defaultValue float64) float64 {
+	if value, ok := c.Params[key]; ok {
+		valFloat64, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return defaultValue
+		}
+		return valFloat64
+	}
+	return defaultValue
+}
+
+func (c *Context) ParamFloat32(key string, defaultValue float32) float32 {
+	if value, ok := c.Params[key]; ok {
+		valFloat32, err := strconv.ParseFloat(value, 32)
+		if err != nil {
+			return defaultValue
+		}
+		return float32(valFloat32)
+	}
+	return defaultValue
+}
+
+func (c *Context) ParamString(key string, defaultValue string) string {
+	if value, ok := c.Params[key]; ok {
+		return value
+	}
+	return defaultValue
+}
+
+// 一些便捷方法的封装，包括Req和Resp
+func (c *Context) PostForm(key string) string {
+	return c.Req.FormValue(key)
+}
+
 func (c *Context) PostFormInt(key string, defaultValue int) int {
-	valInt, err := strconv.Atoi(c.Req.FormValue(key))
+	valInt, err := strconv.Atoi(c.PostForm(key))
 	if err != nil {
 		return defaultValue
 	}
 	return valInt
 }
 
+func (c *Context) PostFormInt64(key string, defaultValue int64) int64 {
+	valInt64, err := strconv.Atoi(c.PostForm(key))
+	if err != nil {
+		return defaultValue
+	}
+	return int64(valInt64)
+}
+
 func (c *Context) PostFormFloat64(key string, defaultValue float64) float64 {
-	val, err := strconv.ParseFloat(c.Req.FormValue(key), 64)
+	valFloat64, err := strconv.ParseFloat(c.PostForm(key), 64)
 	if err != nil {
 		return defaultValue
 	}
-	return val
+	return valFloat64
 }
 
-func (c *Context) PostFormFloat32(key string, defaultValue float64) float64 {
-	val, err := strconv.ParseFloat(c.Req.FormValue(key), 32)
+func (c *Context) PostFormFloat32(key string, defaultValue float32) float32 {
+	valFloat32, err := strconv.ParseFloat(c.PostForm(key), 32)
 	if err != nil {
 		return defaultValue
 	}
-	return val
+	return float32(valFloat32)
 }
 
-func (c *Context) SetStatusCode(statusCode int) {
-	c.StatusCode = statusCode
-	c.Writer.WriteHeader(statusCode)
-}
-
-func (c *Context) SetHeader(key string, value string) {
-	c.Writer.Header().Set(key, value)
-}
-
-func (c *Context) Fail(statusCode int, msg string) {
-	c.SetStatusCode(statusCode)
-	log.Println("Error:" + msg)
-}
-
-func (c *Context) Param(key string) string {
-	value, _ := c.Params[key]
-	return value
-}
-
-// 一些便捷返回类型的封装，包括String,HTML,Data,JSON
-func (c *Context) Bytes(statusCode int, b []byte) error {
-	c.SetStatusCode(statusCode)
-	_, err := c.Writer.Write(b)
-	if err != nil {
-		return err
+func (c *Context) BindJson(obj interface{}) error {
+	if c.Req != nil {
+		body, err := io.ReadAll(c.Req.Body)
+		if err != nil {
+			return err
+		}
+		// 因为Body只能读一次，后面会读不到，所以再构建一个赋值给之前的Body
+		c.Req.Body = io.NopCloser(bytes.NewBuffer(body))
+		err = json.Unmarshal(body, obj)
+		if err != nil {
+			return err
+		}
+	} else {
+		return errors.New("Request Empty")
 	}
 	return nil
 }
 
-func (c *Context) String(statusCode int, format string, values ...interface{}) {
-	c.SetHeader("Content-Type", "text/plain")
-	c.SetStatusCode(statusCode)
-	_, err := c.Writer.Write([]byte(fmt.Sprintf(format, values...)))
-	if err != nil {
-		c.SetStatusCode(http.StatusInternalServerError)
-	}
+func (c *Context) SetStatusCode(statusCode int) IResponse {
+	c.Writer.WriteHeader(statusCode)
+	c.StatusCode = statusCode
+	return c
 }
 
-func (c *Context) JSON(statusCode int, obj interface{}) {
+func (c *Context) SetCookie(key string, val string, maxAge int, path, domain string, secure, httpOnly bool) IResponse {
+	if path == "" {
+		path = "/"
+	}
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     key,
+		Value:    url.QueryEscape(val),
+		MaxAge:   maxAge,
+		Path:     path,
+		Domain:   domain,
+		SameSite: 1,
+		Secure:   secure,
+		HttpOnly: httpOnly,
+	})
+	return c
+}
+
+func (c *Context) SetStatusOK() IResponse {
+	c.Writer.WriteHeader(http.StatusOK)
+	return c
+}
+
+func (c *Context) SetStatusInternalServerError() IResponse {
+	c.Writer.WriteHeader(http.StatusInternalServerError)
+	return c
+}
+
+func (c *Context) SetHeader(key string, value string) IResponse {
+	c.Writer.Header().Add(key, value)
+	return c
+}
+
+func (c *Context) Redirect(path string) IResponse {
+	http.Redirect(c.Writer, c.Req, path, http.StatusMovedPermanently)
+	return c
+}
+
+// 一些便捷返回类型的封装，包括String,HTML,Data,JSON
+
+func (c *Context) String(format string, values ...interface{}) IResponse {
+	c.SetHeader("Content-Type", "text/plain")
+	c.Writer.Write([]byte(fmt.Sprintf(format, values...)))
+	return c
+}
+
+func (c *Context) JSON(obj interface{}) IResponse {
 	c.SetHeader("Content-Type", "application/json")
-	c.SetStatusCode(statusCode)
 	encoder := json.NewEncoder(c.Writer)
 	if err := encoder.Encode(obj); err != nil {
 		c.SetStatusCode(http.StatusInternalServerError)
 	}
+	return c
 }
 
-func (c *Context) HTML(statusCode int, html string) {
+func (c *Context) HTML(html string) IResponse {
 	c.SetHeader("Content-Type", "text/html")
-	c.SetStatusCode(statusCode)
 	_, err := c.Writer.Write([]byte(html))
 	if err != nil {
 		c.SetStatusCode(http.StatusInternalServerError)
 	}
+	return c
 }
 
-func (c *Context) HTMLTemplate(statusCode int, name string, data interface{}) {
+func (c *Context) HTMLTemplate(template string, data interface{}) IResponse {
 	c.SetHeader("Content-Type", "text/html")
-	c.SetStatusCode(statusCode)
-	if err := c.engine.htmlTemplates.ExecuteTemplate(c.Writer, name, data); err != nil {
-		c.Fail(500, err.Error())
+	if err := c.engine.htmlTemplates.ExecuteTemplate(c.Writer, template, data); err != nil {
+		c.SetStatusInternalServerError()
 	}
+	return c
 }

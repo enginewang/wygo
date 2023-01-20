@@ -3,7 +3,6 @@ package middleware
 import (
 	"fmt"
 	"log"
-	"net/http"
 	"runtime"
 	"strings"
 	"wygo"
@@ -30,7 +29,7 @@ func Recovery() wygo.HandlerFunc {
 			if err := recover(); err != nil {
 				message := fmt.Sprintf("%s", err)
 				log.Printf("%s\n\n", trace(message))
-				c.Fail(http.StatusInternalServerError, "Internal Server Error")
+				c.SetStatusInternalServerError()
 			}
 		}()
 		c.Next()

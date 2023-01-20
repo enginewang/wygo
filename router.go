@@ -1,7 +1,6 @@
 package wygo
 
 import (
-	"net/http"
 	"strings"
 )
 
@@ -87,7 +86,7 @@ func (r *router) handle(c *Context) {
 		c.handlers = append(c.handlers, r.handlers[key])
 	} else {
 		c.handlers = append(c.handlers, func(c *Context) {
-			c.String(http.StatusNotFound, "404 NOT FOUND: %s\n", c.Path)
+			c.SetStatusInternalServerError().String("404 NOT FOUND: %s\n", c.Path)
 		})
 	}
 	c.Next()
