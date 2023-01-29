@@ -2,10 +2,12 @@ package wygo
 
 import (
 	"fmt"
+	"github.com/enginewang/wlog"
 	"html/template"
-	"log"
 	"net/http"
 	"path"
+	"reflect"
+	"runtime"
 	"strings"
 )
 
@@ -18,6 +20,16 @@ const (
        /____//____/        
 `
 )
+
+type Config struct {
+	// 一个路由出现相同的多个middleware会报warning提示，默认开启
+	SameMiddlewareWarning bool
+	// 后台监测页面，默认为true
+	WatchSystem bool
+	// 设置后台监管页面的账户
+	User     string
+	Password string
+}
 
 type HandlerFunc func(*Context)
 
@@ -36,24 +48,24 @@ type Engine struct {
 	// html模板
 	htmlTemplates *template.Template // for html render
 	funcMap       template.FuncMap   // for html render
+	config        *Config
 }
 
 // New is the constructor of wygo.Engine
 func New() *Engine {
-	engine := &Engine{router: newRouter()}
+	engine := &Engine{router: newRouter(), config: newConfig()}
 	engine.RouterGroup = &RouterGroup{engine: engine}
 	engine.groups = []*RouterGroup{engine.RouterGroup}
 	fmt.Println(LOGO)
-	//engine.DefaultMiddleware(
-	//	middleware.Logger(),
-	//	middleware.Recovery(),
-	//)
 	return engine
 }
 
-func (group *RouterGroup) UserMiddlewares(middlewares ...HandlerFunc) {
-	for _, m := range middlewares {
-		group.Use(m)
+func newConfig() *Config {
+	return &Config{
+		SameMiddlewareWarning: true,
+		WatchSystem:           true,
+		User:                  "",
+		Password:              "",
 	}
 }
 
@@ -70,7 +82,7 @@ func (group *RouterGroup) Group(prefix string) *RouterGroup {
 
 func (group *RouterGroup) addRoute(method string, comp string, handler HandlerFunc) {
 	pattern := group.prefix + comp
-	log.Printf("Route %4s - %s", method, pattern)
+	wlog.Infof("Route %4s - %s", method, pattern)
 	group.engine.router.addRoute(method, pattern, handler)
 }
 
@@ -103,11 +115,55 @@ func (group *RouterGroup) PATCH(pattern string, handler HandlerFunc) {
 // Run defines the method to start a http server
 func (engine *Engine) Run(addr string) (err error) {
 	fmt.Printf("Wygo Serve on %v\n", addr)
+	for _, group := range engine.groups {
+		if group.prefix != "" {
+			group.PrintMiddlewares()
+		}
+	}
 	return http.ListenAndServe(addr, engine)
 }
 
-func (group *RouterGroup) Use(middlewares ...HandlerFunc) {
-	group.middlewares = append(group.middlewares, middlewares...)
+type MiddlewareHandler interface {
+	BeUsed(*RouterGroup)
+}
+
+func (h HandlerFunc) BeUsed(group *RouterGroup) {
+	group.middlewares = append(group.middlewares, h)
+}
+
+func (mc MiddlewareChain) BeUsed(group *RouterGroup) {
+	group.middlewares = append(group.middlewares, mc.Middlewares...)
+}
+
+func (group *RouterGroup) Use(mh ...MiddlewareHandler) *RouterGroup {
+	//group.middlewares = append(group.middlewares, middlewares...)
+	for _, m := range mh {
+		m.BeUsed(group)
+	}
+	return group
+}
+
+func (group *RouterGroup) UseChain(chain *MiddlewareChain) *RouterGroup {
+	if chain != nil && len(chain.Middlewares) > 0 {
+		group.middlewares = append(group.middlewares, chain.Middlewares...)
+	}
+	return group
+}
+
+func getFuncName(i interface{}) string {
+	tmp := strings.Split(runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name(), ".")
+	return strings.Join(tmp[len(tmp)-2:len(tmp)-1], ".")
+}
+
+func (group *RouterGroup) PrintMiddlewares() {
+	str := fmt.Sprintf("Group [%v] \t [Middlewares] \t ", group.prefix)
+	for i, middleware := range group.middlewares {
+		str += getFuncName(middleware)
+		if i != len(group.middlewares)-1 {
+			str += "<==>"
+		}
+	}
+	wlog.Info(str)
 }
 
 func (group *RouterGroup) createStaticHandler(relativePath string, fs http.FileSystem) HandlerFunc {
@@ -149,4 +205,13 @@ func (engine *Engine) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	c.handlers = middlewares
 	c.engine = engine
 	engine.router.handle(c)
+}
+
+type MiddlewareChain struct {
+	Middlewares []HandlerFunc
+}
+
+func (engine *Engine) NewMiddlewareChain(middlewares ...HandlerFunc) *MiddlewareChain {
+	var mc []HandlerFunc
+	return &MiddlewareChain{Middlewares: append(mc, middlewares...)}
 }

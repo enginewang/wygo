@@ -2,10 +2,10 @@ package middleware
 
 import (
 	"fmt"
+	"github.com/enginewang/wygo"
 	"log"
 	"runtime"
 	"strings"
-	"wygo"
 )
 
 // 打印堆栈信息

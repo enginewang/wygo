@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -16,6 +17,8 @@ import (
 
 type J map[string]interface{}
 
+const AbortIndex = math.MaxInt16 >> 1
+
 type Context struct {
 	// 原生的ResponseWriter和Request
 	Writer http.ResponseWriter
@@ -23,7 +26,7 @@ type Context struct {
 	// 封装request的context
 	Ctx context.Context
 	// Request的一些常用字段的直接访问
-	mu     *sync.Mutex
+	mu     *sync.RWMutex
 	Method string
 	Path   string
 	// 存储的params数组，提供对路由参数的访问
@@ -32,9 +35,11 @@ type Context struct {
 	StatusCode int
 	// 中间件
 	handlers     []HandlerFunc
-	handlerIndex int
+	handlerIndex int16
 	// engine pointer
 	engine *Engine
+	// 存储的信息
+	Kv map[string]any
 }
 
 func newContext(w http.ResponseWriter, r *http.Request) *Context {
@@ -56,15 +61,40 @@ func (c *Context) SetHandlers(handlers []HandlerFunc) {
 	c.handlers = handlers
 }
 
+func (c *Context) Set(key string, value any) {
+	c.mu.Lock()
+	if c.Kv == nil {
+		c.Kv = make(map[string]any)
+	}
+	c.Kv[key] = value
+	c.mu.Unlock()
+}
+
+func (c *Context) Get(key string) (value any, exists bool) {
+	c.mu.RLock()
+	value, exists = c.Kv[key]
+	c.mu.RUnlock()
+	return
+}
+
 func (c *Context) Next() {
 	c.handlerIndex++
-	s := len(c.handlers)
+	s := int16(len(c.handlers))
 	for ; c.handlerIndex < s; c.handlerIndex++ {
 		c.handlers[c.handlerIndex](c)
 	}
 }
 
-func (c *Context) Mux() *sync.Mutex {
+func (c *Context) IsAborted() bool {
+	return c.handlerIndex >= AbortIndex
+}
+
+// 对Index赋值为一个过大的数，使之超过group.Handlers的长度，使后续middleware无法调用到
+func (c *Context) Abort() {
+	c.handlerIndex = AbortIndex
+}
+
+func (c *Context) Mux() *sync.RWMutex {
 	return c.mu
 }
 
