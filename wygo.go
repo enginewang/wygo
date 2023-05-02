@@ -114,12 +114,12 @@ func (group *RouterGroup) PATCH(pattern string, handler HandlerFunc) {
 
 // Run defines the method to start a http server
 func (engine *Engine) Run(addr string) (err error) {
-	fmt.Printf("Wygo Serve on %v\n", addr)
 	for _, group := range engine.groups {
 		if group.prefix != "" {
 			group.PrintMiddlewares()
 		}
 	}
+	fmt.Printf("Wygo Serve on %v\n", addr)
 	return http.ListenAndServe(addr, engine)
 }
 
@@ -160,7 +160,7 @@ func (group *RouterGroup) PrintMiddlewares() {
 	for i, middleware := range group.middlewares {
 		str += getFuncName(middleware)
 		if i != len(group.middlewares)-1 {
-			str += "<==>"
+			str += "<->"
 		}
 	}
 	log.Info(str)
