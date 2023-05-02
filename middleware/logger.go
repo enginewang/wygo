@@ -1,8 +1,8 @@
 package middleware
 
 import (
-	"github.com/enginewang/wlog"
 	"github.com/enginewang/wygo"
+	"github.com/enginewang/wygo/log"
 	"time"
 )
 
@@ -14,7 +14,7 @@ func Logger() wygo.HandlerFunc {
 		c.Next()
 		//fmt.Println(c.StatusCode)
 		if c.StatusCode != 0 {
-			wlog.Infof("[%d] %s in %v", c.StatusCode, c.Req.RequestURI, time.Since(t))
+			log.Infof("[%d] %s in %v", c.StatusCode, c.Req.RequestURI, time.Since(t))
 		}
 	}
 }

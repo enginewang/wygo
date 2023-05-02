@@ -2,7 +2,7 @@ package wygo
 
 import (
 	"fmt"
-	"github.com/enginewang/wlog"
+	"github.com/enginewang/wygo/log"
 	"html/template"
 	"net/http"
 	"path"
@@ -82,7 +82,7 @@ func (group *RouterGroup) Group(prefix string) *RouterGroup {
 
 func (group *RouterGroup) addRoute(method string, comp string, handler HandlerFunc) {
 	pattern := group.prefix + comp
-	wlog.Infof("Route %4s - %s", method, pattern)
+	log.Infof("Route %4s - %s", method, pattern)
 	group.engine.router.addRoute(method, pattern, handler)
 }
 
@@ -163,7 +163,7 @@ func (group *RouterGroup) PrintMiddlewares() {
 			str += "<==>"
 		}
 	}
-	wlog.Info(str)
+	log.Info(str)
 }
 
 func (group *RouterGroup) createStaticHandler(relativePath string, fs http.FileSystem) HandlerFunc {
